@@ -279,9 +279,15 @@ let theme =
     }
   }
 
-type icon = unit
+type icon = {
+  tex: Wall_tex.t;
+  x: int;
+  y: int;
+  w: int;
+  h: int;
+}
 
-type canvas = Wall_canvas.t
+type canvas = C.t
 
 let minf a b : float = if a < b then a else b
 let maxf a b : float = if a > b then a else b
@@ -289,29 +295,67 @@ let maxf a b : float = if a > b then a else b
 let clampf x a b = maxf (minf x b) a
 
 let draw_icon t xf x y icon =
-  () (* TODO *)
+  C.new_path t xf;
+  C.rect t ~x ~y ~w:(float icon.w) ~h:(float icon.h);
+  C.fill t (Paint.image_pattern
+              (P2.v (float icon.x) (float icon.y))
+              (Gg.Size2.v
+                 (float (Wall_tex.width icon.tex))
+                 (float (Wall_tex.height icon.tex)))
+              ~angle:0.0 ~alpha:1.0
+              icon.tex)
 
-let icon_label_value t xf box ?icon ?label ?value color ~align ~fontsize =
+let draw_icon_label_value t xf box ?font ?icon ?(halign=`LEFT) ?valign ?label ?value color =
   let x = B2.minx box and y = B2.miny box in
-  let pleft = Default.pad_left in
-  match label with
-  | Some label ->
-    let pleft = match icon with
-      | None -> pleft
-      | Some icon ->
-        draw_icon t xf (x +. 4.0) (y +. 2.0) icon;
-        pleft +. Default.icon_sheet_res
+  match font, label with
+  | Some font, Some label ->
+    let x = x +. Default.pad_left in
+    let x = match icon with
+        | None -> x
+        | Some icon ->
+          draw_icon t xf (x +. 4.0) (y +. 2.0) icon;
+          (x +. float icon.w)
     in
-    (* TODO *)
-    ignore pleft
-
-  | None -> begin match icon with
+    let paint = Paint.color color in
+    C.new_path t xf;
+    begin match value with
+      | Some value ->
+        (* let lw = Font.text_width font label in
+        let sw = Font.text_width font Default.label_separator in *)
+        C.text ~halign ?valign paint font
+          ~x ~y:(y +. Default.widget_height -. Default.text_pad_down)
+          (label ^ Default.label_separator ^ value)
+      | None ->
+        C.text ~halign ?valign paint font
+          ~x ~y:(y +. Default.widget_height -. Default.text_pad_down)
+          label
+    end
+  | _, _ -> begin match icon with
       | None -> ()
       | Some icon -> draw_icon t xf (x +. 2.0) (y +. 2.0) icon
     end
 
-let label t box ?icon label =
-  icon_label_value t box ?icon ~label
+let draw_node_icon_label t xf box ?icon c0 c1 ~align font label =
+  begin match font, label with
+  | _ -> ()
+  | Some font, Some label ->
+    let font' = {font with Font.blur = Default.node_title_feather} in
+    C.new_path t xf;
+    C.text t (Paint.color c1) font' label
+      ~halign:`LEFT ~valign:`BASELINE
+      ~x:(B2.minx box +. 1.0) ~y:(B2.maxy box +. 3.0 -. Default.text_pad_down);
+    C.text t (Paint.color c0) font label
+      ~halign:`LEFT ~valign:`BASELINE
+      ~x:(B2.minx box +. 0.0) ~y:(B2.maxy box +. 2.0 -. Default.text_pad_down)
+  end;
+  begin match icon with
+    | None -> ()
+    | Some icon ->
+      draw_icon t xf (B2.maxx box -. float icon.w) (B2.miny box +. 3.0) icon
+  end
+
+let draw_label t box ?icon label =
+  draw_icon_label_value t box ?icon ~label
 
 let select_corners (corners : corner_flags) r =
   let test x = if List.mem x corners then r else 0.0 in
@@ -327,7 +371,7 @@ let offset_color color = function
 let transparent color =
   Color.with_a color (Color.a color *. Default.transparent_alpha)
 
-let draw_bevel_inset t xf box cr2 cr3 =
+let draw_bevel_inset t xf box (_, _, cr2, cr3) =
   let x1 = B2.minx box in
   let y1 = B2.miny box -. 0.5 in
   let x2 = B2.maxx box in
@@ -364,8 +408,7 @@ let draw_bevel t xf box =
   let color = offset_color theme.background Default.bevel_shade in
   C.stroke t (Paint.color (transparent color)) Outline.default
 
-let inner_colors {inner; inner_selected; shade_top; shade_down}
-    (state : widget_state) ~flip =
+let inner_colors {inner; inner_selected; shade_top; shade_down} ?(flip=false) (state : widget_state) =
   match state with
   | `DEFAULT ->
     (offset_color inner shade_top, offset_color inner shade_down)
@@ -378,7 +421,7 @@ let inner_colors {inner; inner_selected; shade_top; shade_down}
     in
     (offset_color inner_selected a, offset_color inner_selected b)
 
-let rounded_box t box ~corners:(cr0, cr1, cr2, cr3) =
+let draw_rounded_box t box ~corners:(cr0, cr1, cr2, cr3) =
   let w = B2.w box and h = B2.h box in
   if w > 0.0 && h > 0.0 then (
     let d = if w < h then w else h in
@@ -398,108 +441,121 @@ let offset_box box x1 y1 x2 y2 =
     (P2.v (P2.x p1 +. x1) (P2.y p1 +. y1))
     (Gg.Size2.v (B2.w box +. x2 -. x1) (B2.h box +. y2 -. y1))
 
-let inner_box t xf ?frame box (cr0, cr1, cr2, cr3) inner outer =
+let draw_inner_box t xf ?frame box (cr0, cr1, cr2, cr3) inner outer =
   let x1 = B2.minx box and y1 = B2.miny box in
   let x2 = B2.maxx box and y2 = B2.maxy box in
   C.new_path t xf;
-  rounded_box t (offset_box box 1.0 1.0 (-2.0) (-3.0))
+  draw_rounded_box t (offset_box box 1.0 1.0 (-2.0) (-3.0))
     ~corners:(max 0.0 cr0, max 0.0 cr1, max 0.0 cr2, max 0.0 cr3);
   C.fill t ?frame
     (if B2.h box -. 2.0 > B2.w box
      then Paint.linear_gradient ~sx:x1 ~sy:y1 ~ex:x2 ~ey:y1 ~inner ~outer
      else Paint.linear_gradient ~sx:x1 ~sy:y1 ~ex:x1 ~ey:y2 ~inner ~outer)
 
-let outline_box t xf box corners color =
+let draw_outline_box t xf box corners color =
   C.new_path t xf;
-  rounded_box t (offset_box box 0.5 0.5 (-1.0) (-2.0)) ~corners;
+  draw_rounded_box t (offset_box box 0.5 0.5 (-1.0) (-2.0)) ~corners;
   C.stroke t (Paint.color color)
     {Outline.default with Outline.stroke_width = 1.0}
 
-let tool_button t xf box ~corners state ?icon text =
-  let (_,_,cr2,cr3) as corners =
-    select_corners corners Default.text_radius
-  in
-  let (shade_top, shade_down) =
-    inner_colors theme.radio_button state ~flip:true
-  in
-  draw_bevel_inset t xf box cr2 cr3;
-  inner_box t xf box corners shade_top shade_down;
-  outline_box t xf box corners theme.radio_button.outline;
-  icon_label_value t xf box ?icon
+let draw_tool_button t xf box ~corners state ?icon text =
+  let corners = select_corners corners Default.text_radius in
+  draw_bevel_inset t xf box corners;
+  let (shade_top, shade_down) = inner_colors theme.radio_button state ~flip:true in
+  draw_inner_box t xf box corners shade_top shade_down;
+  draw_outline_box t xf box corners theme.radio_button.outline;
+  draw_icon_label_value t xf box ?icon ~align:`CENTER
 
-let radio_button t xf box ~corners state ?icon ?label () =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.option_radius in
-  draw_bevel_inset t xf box cr2 cr3;
-  let shade_top, shade_down =
-    inner_colors theme.tool_button state ~flip:true in
-  inner_box t xf box corners shade_top shade_down;
-  outline_box t xf box corners (transparent theme.tool_button.outline);
-  icon_label_value t xf box ?icon ?label
+let draw_radio_button t xf box ~corners state ?icon ?label () =
+  let corners = select_corners corners Default.option_radius in
+  draw_bevel_inset t xf box corners;
+  let shade_top, shade_down = inner_colors theme.tool_button state ~flip:true in
+  draw_inner_box t xf box corners shade_top shade_down;
+  draw_outline_box t xf box corners (transparent theme.tool_button.outline);
+  draw_icon_label_value t xf box ?icon ?label
     theme.regular.text
     ~align:`CENTER ~fontsize:Default.label_font_size
 
-let icon_label_text_position t xf box ?icon ~fontsize text pt =
-  let pleft = match icon with
-    | None -> Default.text_radius
-    | Some _ -> Default.text_radius +. Default.icon_sheet_res
-  in
-  let x = B2.minx box +. pleft in
-  let y = B2.miny box +. Default.(widget_height -. text_pad_down) in
-  (* TODO
-     nvgFontFaceId(ctx, bnd_font);
-     nvgFontSize(ctx, fontsize);
-     nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE); *)
-  let w = B2.w box -. (Default.text_radius +. pleft) in
-  (* TODO
-     float asc, desc, lh;
-     static NVGtextRow rows[BND_MAX_ROWS];
-     int nrows = nvgTextBreakLines(
-         ctx, label, NULL, w, rows, BND_MAX_ROWS);
-     if (nrows == 0) return 0;
-     nvgTextBoxBounds(ctx, x, y, w, label, NULL, bounds);
-     nvgTextMetrics(ctx, &asc, &desc, &lh);
-
-     // calculate vertical position
-     int row = bnd_clamp((int)((float)(py - bounds[1]) / lh), 0, nrows - 1);
-     // search horizontal position
-     static NVGglyphPosition glyphs[BND_MAX_GLYPHS];
-     int nglyphs = nvgTextGlyphPositions(
-         ctx, x, y, rows[row].start, rows[row].end + 1, glyphs, BND_MAX_GLYPHS);
-     int col, p = 0;
-     for (col = 0; col < nglyphs && glyphs[col].x < px; ++col)
-         p = glyphs[col].str - label;
-     // see if we should move one character further
-     if (col > 0 && col < nglyphs && glyphs[col].x - px < px - glyphs[col - 1].x)
-         p = glyphs[col].str - label;
-     return p; *)
-  ignore (x,y,w)
-
-
-
-let text_field_text_position t xf box ?icon text pt =
-  icon_label_text_position t xf box ?icon text pt
-    ~fontsize:Default.label_font_size
-
-let icon_label_caret t xf box ?icon color1 ~fontsize text color2 ~caret =
+let draw_icon_label_caret t xf box ?icon color1 ~fontsize text color2 ~caret =
   (* TODO *)
   ()
+(*
+TODO void draw_icon_label_caret(NVGcontext *ctx, float x, float y, float w, float h, int iconid, NVGcolor color, float fontsize, const char *label, NVGcolor caretcolor, int cbegin, int cend)
+{
+  float pleft = BND_TEXT_RADIUS;
+  if (!label) return;
+  if (iconid >= 0)
+  {
+    draw_icon(ctx,x+4,y+2,iconid);
+    pleft += BND_ICON_SHEET_RES;
+  }
+
+  if (bnd_font < 0) return;
+
+  x+=pleft;
+  y+=BND_WIDGET_HEIGHT-BND_TEXT_PAD_DOWN;
+
+  nvgFontFaceId(ctx, bnd_font);
+  nvgFontSize(ctx, fontsize);
+  nvgTextAlign(ctx, NVG_ALIGN_LEFT|NVG_ALIGN_BASELINE);
+
+  w -= BND_TEXT_RADIUS+pleft;
+
+  if (cend >= cbegin)
+  {
+    int c0r,c1r;
+    float c0x,c0y,c1x,c1y;
+    float desc,lh;
+    static NVGtextRow rows[BND_MAX_ROWS];
+    int nrows = nvgTextBreakLines( ctx, label, label+cend+1, w, rows, BND_MAX_ROWS);
+    nvgTextMetrics(ctx, NULL, &desc, &lh);
+
+    caret_position(ctx, x, y, desc, lh, label+cbegin, rows, nrows, &c0r, &c0x, &c0y);
+    caret_position(ctx, x, y, desc, lh, label+cend, rows, nrows, &c1r, &c1x, &c1y);
+
+    nvgBeginPath(ctx);
+    if (cbegin == cend)
+    {
+      nvgFillColor(ctx, nvgRGBf(0.337,0.502,0.761));
+      nvgRect(ctx, c0x-1, c0y, 2, lh+1);
+    } else
+    {
+      nvgFillColor(ctx, caretcolor);
+      if (c0r == c1r)
+      {
+        nvgRect(ctx, c0x-1, c0y, c1x-c0x+1, lh+1);
+      } else
+      {
+        int blk=c1r-c0r-1;
+        nvgRect(ctx, c0x-1, c0y, x+w-c0x+1, lh+1);
+        nvgRect(ctx, x, c1y, c1x-x+1, lh+1);
+
+        if (blk)
+          nvgRect(ctx, x, c0y+lh, w, blk*lh+1);
+      }
+    }
+    nvgFill(ctx);
+  }
+
+  nvgBeginPath(ctx);
+  nvgFillColor(ctx, color);
+  nvgTextBox(ctx,x,y,w,label, NULL);
+}
+*)
 
 let text_color theme = function
   | `ACTIVE -> theme.text_selected
   | _ -> theme.text
 
-let text_field t xf box ~corners state ?icon text ~caret =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.text_radius in
-  let shade_top, shade_down =
-    inner_colors theme.text_field state ~flip:false in
-  draw_bevel_inset t xf box cr2 cr3;
-  inner_box t xf box corners shade_top shade_down;
-  outline_box t xf box corners
+let draw_text_field t xf box ~corners state ?icon text ~caret =
+  let corners = select_corners corners Default.text_radius in
+  draw_bevel_inset t xf box corners;
+  let shade_top, shade_down = inner_colors theme.text_field state in
+  draw_inner_box t xf box corners shade_top shade_down;
+  draw_outline_box t xf box corners
     (transparent theme.text_field.outline);
   let caret = if state <> `ACTIVE then (fst caret, -1) else caret in
-  icon_label_caret t xf box ?icon
+  draw_icon_label_caret t xf box ?icon
     (text_color theme.text_field state)
     ~fontsize:Default.label_font_size
     text theme.text_field.item ~caret
@@ -514,26 +570,6 @@ let draw_check t xf ~x ~y color =
               line_cap = `BUTT; line_join = `MITER;
               stroke_width = 2.0})
 
-let option_button t xf box state label =
-  let ox = B2.minx box in
-  let oy = B2.maxy box +. Default.option_height -. 3.0 in
-  let box' = B2.v (P2.v ox oy)
-      Default.(Gg.Size2.v option_width option_height) in
-  draw_bevel_inset t xf box'
-    Default.option_radius Default.option_radius;
-  let corners =
-    Default.(option_radius, option_radius, option_radius, option_radius) in
-  let shade_top, shade_down =
-    inner_colors theme.option state ~flip:true in
-  inner_box t xf box' corners shade_top shade_down;
-  outline_box t xf box' corners
-    (transparent theme.option.outline);
-  if state = `ACTIVE then
-    draw_check t xf (transparent theme.option.item) ~x:ox ~y:oy;
-  icon_label_value t xf (offset_box box 12.0 0.0 (-12.0) (-1.0))
-    (text_color theme.option state)
-    ~align:`LEFT ~fontsize:Default.label_font_size ~label
-
 let draw_up_down_arrow t xf ~x ~y ~size color =
   let w = 1.1 *. size in
   C.new_path t xf;
@@ -547,30 +583,6 @@ let draw_up_down_arrow t xf ~x ~y ~size color =
   (* CHECK: two close paths?! *)
   C.fill t (Paint.color color)
 
-let choice_button t xf box ~corners state ?icon label =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.option_radius in
-  let shade_top, shade_down =
-    inner_colors theme.choice state ~flip:true in
-  draw_bevel_inset t xf box cr2 cr3;
-  inner_box t xf box corners shade_top shade_down;
-  outline_box t xf box corners
-    (transparent theme.choice.outline);
-  icon_label_value t xf box ?icon
-    (text_color theme.choice state)
-    ~align:`LEFT ~fontsize:Default.label_font_size ~label;
-  let x = B2.maxx box -. 10.0 and y = B2.miny box +. 10.0 in
-  draw_up_down_arrow t xf ~x ~y ~size:5.0
-    (transparent theme.choice.item)
-
-let color_button t xf box ~corners color =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.tool_radius in
-  draw_bevel_inset t xf box cr2 cr3;
-  inner_box t xf box corners color color;
-  outline_box t xf box corners
-    (transparent theme.tool_button.outline)
-
 let draw_arrow t xf ~x ~y ~size color =
   C.new_path t xf;
   C.move_to t x y;
@@ -579,16 +591,51 @@ let draw_arrow t xf ~x ~y ~size color =
   C.close_path t;
   C.fill t (Paint.color color)
 
-let number_field t xf box ~corners state label value =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.tool_radius in
-  let shade_top, shade_down =
-    inner_colors theme.choice state ~flip:true in
-  draw_bevel_inset t xf box cr2 cr3;
-  inner_box t xf box corners shade_top shade_down;
-  outline_box t xf box corners
-    (transparent theme.number_field.outline);
-  icon_label_value t xf box
+let draw_option_button t xf box state label =
+  let ox = B2.minx box in
+  let oy = B2.maxy box -. Default.option_height -. 3.0 in
+  let box' = B2.v (P2.v ox oy)
+      Default.(Gg.Size2.v option_width option_height) in
+  let corners =
+    Default.(option_radius, option_radius, option_radius, option_radius) in
+  draw_bevel_inset t xf box' corners;
+  let shade_top, shade_down = inner_colors theme.option state ~flip:true in
+  draw_inner_box t xf box' corners shade_top shade_down;
+  draw_outline_box t xf box' corners
+    (transparent theme.option.outline);
+  if state = `ACTIVE then
+    draw_check t xf (transparent theme.option.item) ~x:ox ~y:oy;
+  draw_icon_label_value t xf (offset_box box 12.0 0.0 (-12.0) (-1.0))
+    (text_color theme.option state)
+    ~align:`LEFT ~fontsize:Default.label_font_size ~label
+
+let draw_choice_button t xf box ~corners state ?icon label =
+  let corners = select_corners corners Default.option_radius in
+  draw_bevel_inset t xf box corners;
+  let shade_top, shade_down = inner_colors theme.choice state ~flip:true in
+  draw_inner_box t xf box corners shade_top shade_down;
+  draw_outline_box t xf box corners (transparent theme.choice.outline);
+  draw_icon_label_value t xf box ?icon
+    (text_color theme.choice state)
+    ~align:`LEFT ~fontsize:Default.label_font_size ~label;
+  let x = B2.maxx box -. 10.0 and y = B2.miny box +. 10.0 in
+  draw_up_down_arrow t xf ~x ~y ~size:5.0
+    (transparent theme.choice.item)
+
+let draw_color_button t xf box ~corners color =
+  let corners = select_corners corners Default.tool_radius in
+  draw_bevel_inset t xf box corners;
+  draw_inner_box t xf box corners color color;
+  draw_outline_box t xf box corners
+    (transparent theme.tool_button.outline)
+
+let draw_number_field t xf box ~corners state label value =
+  let corners = select_corners corners Default.number_radius in
+  draw_bevel_inset t xf box corners;
+  let shade_top, shade_down = inner_colors theme.choice state ~flip:true in
+  draw_inner_box t xf box corners shade_top shade_down;
+  draw_outline_box t xf box corners (transparent theme.number_field.outline);
+  draw_icon_label_value t xf box
     (text_color theme.number_field state)
     ~align:`CENTER
     ~fontsize:Default.label_font_size
@@ -600,12 +647,10 @@ let number_field t xf box ~corners state label value =
   draw_arrow t xf ~x:x2 ~y ~size:Default.number_arrow_size
     (transparent theme.number_field.item)
 
-let slider t xf box ~corners state ~progress ~label ~value =
-  let (_, _, cr2, cr3) as corners =
-    select_corners corners Default.number_radius in
-  let shade_top, shade_down =
-    inner_colors theme.slider state ~flip:false in
-  inner_box t xf box corners shade_top shade_down;
+let draw_slider t xf box ~corners state ~progress ~label ~value =
+  let corners = select_corners corners Default.number_radius in
+  let shade_top, shade_down = inner_colors theme.slider state in
+  draw_inner_box t xf box corners shade_top shade_down;
 
   let shade_top =
     (offset_color theme.slider.item theme.slider.shade_top)
@@ -618,16 +663,16 @@ let slider t xf box ~corners state ~progress ~label ~value =
     else (shade_down, shade_top)
   in
   (* TODO nvgScissor(ctx,x,y,8+(w-8)*bnd_clamp(progress,0,1),h); *)
-  inner_box t xf box corners shade_top shade_down;
+  draw_inner_box t xf box corners shade_top shade_down;
   (* TODO nvgResetScissor(ctx); *)
-  outline_box t xf box corners (transparent theme.slider.outline);
-  icon_label_value t xf box
+  draw_outline_box t xf box corners (transparent theme.slider.outline);
+  draw_icon_label_value t xf box
     (text_color theme.slider state)
     ~align:`CENTER
     ~fontsize:Default.label_font_size
     ?label ?value
 
-let scroll_handle box ~offset ~size =
+let scroll_handle_rect box ~offset ~size =
   let size = clampf size 0.0 1.0 in
   let offset = clampf offset 0.0 1.0 in
   let x = B2.minx box and y = B2.miny box in
@@ -641,6 +686,28 @@ let scroll_handle box ~offset ~size =
     B2.v (P2.v (x +. (w -. ws) *. offset) y)
       (Gg.Size2.v ws h)
   )
+
+let draw_scroll_bar t xf box state ~offset ~size =
+  let corners =
+    Default.(scrollbar_radius,scrollbar_radius,scrollbar_radius,scrollbar_radius) in
+  draw_bevel_inset t xf box corners;
+  draw_inner_box t xf box corners
+    (offset_color theme.scrollbar.inner (3.0 *. theme.scrollbar.shade_down))
+    (offset_color theme.scrollbar.inner (3.0 *. theme.scrollbar.shade_top));
+  draw_outline_box t xf box corners
+    (transparent theme.scrollbar.outline);
+
+  let box = scroll_handle_rect box ~offset ~size in
+  let item_color = theme.scrollbar.item in
+  let item_color = if state = `ACTIVE
+    then offset_color item_color Default.scrollbar_active_shade
+    else item_color
+  in
+  draw_inner_box t xf box corners
+    (offset_color item_color (3.0 *. theme.scrollbar.shade_top))
+    (offset_color item_color (3.0 *. theme.scrollbar.shade_down));
+  draw_outline_box t xf box corners
+    (transparent theme.scrollbar.outline)
 
 let draw_drop_shadow t xf box ~r ~feather ~alpha =
   C.new_path t xf;
@@ -666,70 +733,46 @@ let draw_drop_shadow t xf box ~r ~feather ~alpha =
               ~inner:(Color.gray ~a:(alpha*.alpha) 0.0)
               ~outer:(Color.gray ~a:0.0 0.0))
 
-let scroll_bar t xf box state ~offset ~size =
-  let corners =
-    Default.(scrollbar_radius,scrollbar_radius,scrollbar_radius,scrollbar_radius) in
-  draw_bevel_inset t xf box Default.scrollbar_radius Default.scrollbar_radius;
-  inner_box t xf box corners
-    (offset_color theme.scrollbar.inner (3.0 *. theme.scrollbar.shade_down))
-    (offset_color theme.scrollbar.inner (3.0 *. theme.scrollbar.shade_top));
-  outline_box t xf box corners
-    (transparent theme.scrollbar.outline);
-
-  let box = scroll_handle box ~offset ~size in
-  let item_color = theme.scrollbar.item in
-  let item_color = if state = `ACTIVE
-    then offset_color item_color Default.scrollbar_active_shade
-    else item_color
-  in
-  inner_box t xf box corners
-    (offset_color item_color (3.0 *. theme.scrollbar.shade_top))
-    (offset_color item_color (3.0 *. theme.scrollbar.shade_down));
-  outline_box t xf box corners
-    (transparent theme.scrollbar.outline)
-
-let menu_background t xf box ~corners =
+let draw_menu_background t xf box ~corners =
   let corners = select_corners corners Default.menu_radius in
-  let shade_top, shade_down =
-    inner_colors theme.menu `DEFAULT ~flip:false in
+  let shade_top, shade_down = inner_colors theme.menu `DEFAULT in
   let box' = offset_box box 0.0 0.0 0.0 1.0 in
-  inner_box t xf box' corners shade_top shade_down;
-  outline_box t xf box' corners (transparent theme.menu.outline);
+  draw_inner_box t xf box' corners shade_top shade_down;
+  draw_outline_box t xf box' corners (transparent theme.menu.outline);
   draw_drop_shadow t xf box
     ~r:Default.menu_radius
     ~feather:Default.shadow_feather
     ~alpha:Default.shadow_alpha
 
-let menu_label t xf box ?icon label =
-  icon_label_value t xf box theme.menu.text
+let draw_menu_label t xf box ?icon label =
+  draw_icon_label_value t xf box theme.menu.text
     ?icon ~align:`LEFT ~fontsize:Default.label_font_size ~label
 
-let menu_item t xf box state ?icon label =
+let draw_menu_item t xf box state ?icon label =
   let state =
     if state = `DEFAULT then state else (
-      inner_box t xf box (0.0,0.0,0.0,0.0)
+      draw_inner_box t xf box (0.0,0.0,0.0,0.0)
         (offset_color theme.menu_item.inner_selected theme.menu_item.shade_top)
         (offset_color theme.menu_item.inner_selected theme.menu_item.shade_down);
       `ACTIVE
     )
   in
-  icon_label_value t xf box ?icon
+  draw_icon_label_value t xf box ?icon
     (text_color theme.menu_item state)
     ~align:`LEFT
     ~fontsize:Default.label_font_size
     ~label
 
-let tooltip_background t xf box =
-  let shade_top, shade_down =
-    inner_colors theme.tooltip `DEFAULT ~flip:false in
+let draw_tooltip_background t xf box =
+  let shade_top, shade_down = inner_colors theme.tooltip `DEFAULT in
   let corners = Default.(menu_radius,menu_radius,menu_radius,menu_radius) in
   let box' = offset_box box 0.0 0.0 0.0 1.0 in
-  inner_box t xf box' corners shade_top shade_down;
-  outline_box t xf box' corners (transparent theme.tooltip.outline);
+  draw_inner_box t xf box' corners shade_top shade_down;
+  draw_outline_box t xf box' corners (transparent theme.tooltip.outline);
   draw_drop_shadow t xf box ~r:Default.menu_radius
     ~feather:Default.shadow_feather ~alpha:Default.shadow_alpha
 
-let node_port t xf ~x ~y state color =
+let draw_node_port t xf ~x ~y state color =
   C.new_path t xf;
   C.circle t ~cx:x ~cy:y ~r:Default.node_port_radius;
   C.stroke t
@@ -738,7 +781,7 @@ let node_port t xf ~x ~y state color =
   C.fill t (Paint.color (if state = `DEFAULT then color
                          else offset_color color Default.hover_shade))
 
-let colored_node_wire t xf x0 y0 c0 x1 y1 c1 =
+let draw_colored_node_wire t xf x0 y0 c0 x1 y1 c1 =
   let length = maxf (abs_float (x1 -. x0)) (abs_float (y1 -. y0)) in
   let delta = length *. theme.node.noodle_curving in
   C.new_path t xf;
@@ -761,8 +804,8 @@ let node_wire_color =
     | `HOVER   -> theme.wire_selected
     | `ACTIVE  -> theme.node_active
 
-let node_wire t xf x0 y0 s0 x1 y1 s1 =
-  colored_node_wire t xf
+let draw_node_wire t xf x0 y0 s0 x1 y1 s1 =
+  draw_colored_node_wire t xf
     x0 y0 (node_wire_color theme.node s0)
     x1 y1 (node_wire_color theme.node s1)
 
@@ -770,24 +813,20 @@ let b2_with_h box h =
   let tl = B2.tl_pt box and w = B2.w box in
   B2.v tl (Gg.Size2.v w h)
 
-let node_icon_label t xf box ?icon c0 c1 ~align ~fontsize label =
-  (* TODO *)
-  ()
-
-let node_background t xf box state ?icon label color =
-  inner_box t xf
+let draw_node_background t xf box state ?icon label color =
+  draw_inner_box t xf
     (b2_with_h box (Default.node_title_height +. 2.0))
     Default.(node_radius,node_radius,0.0,0.0)
     (transparent (offset_color color Default.bevel_shade))
     (transparent color);
-  inner_box t xf
+  draw_inner_box t xf
     (offset_box box
        0.0 (Default.node_title_height -. 1.0)
        0.0 (2.0 -. Default.node_title_height))
     Default.(0.0,0.0,node_radius,node_radius)
     (transparent theme.node.node_backdrop)
     (transparent theme.node.node_backdrop);
-  node_icon_label t xf
+  draw_node_icon_label t xf
     (offset_box (b2_with_h box Default.node_title_height)
        Default.node_arrow_area_width 0.0
        Default.(-. node_arrow_area_width -. node_margin_side) 0.0)
@@ -800,13 +839,13 @@ let node_background t xf box state ?icon label color =
     | `HOVER   -> (theme.node.node_selected,theme.node.node_selected)
     | `ACTIVE  -> (theme.node.node_active,theme.node.node_selected)
   in
-  outline_box t xf (offset_box box 0.0 0.0 0.0 1.0)
+  draw_outline_box t xf (offset_box box 0.0 0.0 0.0 1.0)
     Default.(node_radius,node_radius,node_radius,node_radius)
     (transparent border_color);
   draw_drop_shadow t xf box ~r:Default.node_radius
     ~feather:Default.shadow_feather ~alpha:Default.shadow_alpha
 
-let splitter_widgets t xf box =
+let draw_splitter_widgets t xf box =
   let inset = transparent theme.background in
   let inset_light =
     transparent (offset_color inset Default.splitter_shade)
@@ -867,7 +906,7 @@ let splitter_widgets t xf box =
 
   C.stroke t (Paint.color inset)
 
-let join_area_overlay t xf box ~vertical ~mirror =
+let draw_join_area_overlay t xf box ~vertical ~mirror =
   let x = B2.minx box and y = B2.miny box in
   let w, h =
     let w = B2.w box and h = B2.h box in
@@ -904,37 +943,31 @@ let join_area_overlay t xf box ~vertical ~mirror =
   done;
   C.fill t (Paint.color (Color.gray ~a:0.3 0.0))
 
-let label_width t ?icon label =
+let label_width t font ?icon label =
   let w = Default.(pad_left +. pad_right) in
   let w = match icon with
     | None -> w
     | Some _ -> w +. Default.icon_sheet_res
   in
-  (*if (label && (bnd_font >= 0)) {
-      nvgFontFaceId(ctx, bnd_font);
-      nvgFontSize(ctx, BND_LABEL_FONT_SIZE);
-      w += nvgTextBounds(ctx, 1, 1, label, NULL, NULL);
-    }*)
+  let w =
+    if label = "" then w else
+      (w +. Font.text_width font label)
+  in
   w
 
-let label_height t ?icon label ~width =
+let label_height t font ?icon label ~width =
   let h = Default.widget_height in
-  let width = width -. Default.text_radius *. 2.0 in
-  let width = match icon with
-    | None -> width
-    | Some _ -> width +. Default.icon_sheet_res
+  (* FIXME
+     let width = width -. Default.text_radius *. 2.0 in
+     let width = match icon with
+     | None -> width
+     | Some _ -> width -. Default.icon_sheet_res
+     in
+  *)
+  let h = if label = "" then h else
+      maxf h (font.Font.size +. Default.text_pad_down)
   in
-  (*if (label && (bnd_font >= 0)) {
-      nvgFontFaceId(ctx, bnd_font);
-      nvgFontSize(ctx, BND_LABEL_FONT_SIZE);
-      float bounds[4];
-      nvgTextBoxBounds(ctx, 1, 1, width, label, NULL, bounds);
-      int bh = int(bounds[3] - bounds[1]) + BND_TEXT_PAD_DOWN;
-      if (bh > h)
-      h = bh;
-    }*)
-  ignore h;
-  width
+  h
 
 let draw_background t xf box =
   C.new_path t xf;
@@ -948,3 +981,44 @@ let draw_node_arrow_down t xf ~x ~y ~size color =
   C.line_to t (x -. size *. 0.5) (y -. size);
   C.close_path t;
   C.fill t (Paint.color color)
+
+(* TODO LATER
+let icon_label_text_position t xf box ?icon ~fontsize text pt =
+  let pleft = match icon with
+    | None -> Default.text_radius
+    | Some _ -> Default.text_radius +. Default.icon_sheet_res
+  in
+  let x = B2.minx box +. pleft in
+  let y = B2.miny box +. Default.(widget_height -. text_pad_down) in
+  (* TODO
+     nvgFontFaceId(ctx, bnd_font);
+     nvgFontSize(ctx, fontsize);
+     nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE); *)
+  let w = B2.w box -. (Default.text_radius +. pleft) in
+  (* TODO
+     float asc, desc, lh;
+     static NVGtextRow rows[BND_MAX_ROWS];
+     int nrows = nvgTextBreakLines(
+         ctx, label, NULL, w, rows, BND_MAX_ROWS);
+     if (nrows == 0) return 0;
+     nvgTextBoxBounds(ctx, x, y, w, label, NULL, bounds);
+     nvgTextMetrics(ctx, &asc, &desc, &lh);
+
+     // calculate vertical position
+     int row = bnd_clamp((int)((float)(py - bounds[1]) / lh), 0, nrows - 1);
+     // search horizontal position
+     static NVGglyphPosition glyphs[BND_MAX_GLYPHS];
+     int nglyphs = nvgTextGlyphPositions(
+         ctx, x, y, rows[row].start, rows[row].end + 1, glyphs, BND_MAX_GLYPHS);
+     int col, p = 0;
+     for (col = 0; col < nglyphs && glyphs[col].x < px; ++col)
+         p = glyphs[col].str - label;
+     // see if we should move one character further
+     if (col > 0 && col < nglyphs && glyphs[col].x - px < px - glyphs[col - 1].x)
+         p = glyphs[col].str - label;
+     return p; *)
+  ignore (x,y,w)
+
+let text_field_text_position t xf box ?icon text pt =
+  icon_label_text_position t xf box ?icon text pt
+*)
