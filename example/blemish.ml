@@ -322,11 +322,11 @@ let draw_icon_label_value t xf box ?font ?icon ?(halign=`LEFT) ?valign ?label ?v
       | Some value ->
         (* let lw = Font.text_width font label in
         let sw = Font.text_width font Default.label_separator in *)
-        C.text ~halign ?valign paint font
+        C.text ~halign ?valign t paint font
           ~x ~y:(y +. Default.widget_height -. Default.text_pad_down)
           (label ^ Default.label_separator ^ value)
       | None ->
-        C.text ~halign ?valign paint font
+        C.text ~halign ?valign t paint font
           ~x ~y:(y +. Default.widget_height -. Default.text_pad_down)
           label
     end
@@ -337,16 +337,16 @@ let draw_icon_label_value t xf box ?font ?icon ?(halign=`LEFT) ?valign ?label ?v
 
 let draw_node_icon_label t xf box ?icon c0 c1 ~align font label =
   begin match font, label with
-  | _ -> ()
-  | Some font, Some label ->
-    let font' = {font with Font.blur = Default.node_title_feather} in
-    C.new_path t xf;
-    C.text t (Paint.color c1) font' label
-      ~halign:`LEFT ~valign:`BASELINE
-      ~x:(B2.minx box +. 1.0) ~y:(B2.maxy box +. 3.0 -. Default.text_pad_down);
-    C.text t (Paint.color c0) font label
-      ~halign:`LEFT ~valign:`BASELINE
-      ~x:(B2.minx box +. 0.0) ~y:(B2.maxy box +. 2.0 -. Default.text_pad_down)
+    | Some font, Some label ->
+      let font' = {font with Font.blur = Default.node_title_feather} in
+      C.new_path t xf;
+      C.text t (Paint.color c1) font' label
+        ~halign:`LEFT ~valign:`BASELINE
+        ~x:(B2.minx box +. 1.0) ~y:(B2.maxy box +. 3.0 -. Default.text_pad_down);
+      C.text t (Paint.color c0) font label
+        ~halign:`LEFT ~valign:`BASELINE
+        ~x:(B2.minx box +. 0.0) ~y:(B2.maxy box +. 2.0 -. Default.text_pad_down)
+    | _ -> ()
   end;
   begin match icon with
     | None -> ()
@@ -464,9 +464,9 @@ let draw_tool_button t xf box ~corners state ?icon text =
   let (shade_top, shade_down) = inner_colors theme.radio_button state ~flip:true in
   draw_inner_box t xf box corners shade_top shade_down;
   draw_outline_box t xf box corners theme.radio_button.outline;
-  draw_icon_label_value t xf box ?icon ~align:`CENTER
+  draw_icon_label_value t xf box ?icon ~halign:`CENTER
 
-let draw_radio_button t xf box ~corners state ?icon ?label () =
+let draw_radio_button t xf box ~font ~corners state ?icon ?label () =
   let corners = select_corners corners Default.option_radius in
   draw_bevel_inset t xf box corners;
   let shade_top, shade_down = inner_colors theme.tool_button state ~flip:true in
@@ -474,9 +474,9 @@ let draw_radio_button t xf box ~corners state ?icon ?label () =
   draw_outline_box t xf box corners (transparent theme.tool_button.outline);
   draw_icon_label_value t xf box ?icon ?label
     theme.regular.text
-    ~align:`CENTER ~fontsize:Default.label_font_size
+    ~halign:`CENTER ~font:{font with Wall.Font.size = Default.label_font_size}
 
-let draw_icon_label_caret t xf box ?icon color1 ~fontsize text color2 ~caret =
+let draw_icon_label_caret t xf box ?icon color1 ~font text color2 ~caret =
   (* TODO *)
   ()
 (*
@@ -547,7 +547,7 @@ let text_color theme = function
   | `ACTIVE -> theme.text_selected
   | _ -> theme.text
 
-let draw_text_field t xf box ~corners state ?icon text ~caret =
+let draw_text_field t xf box ~corners state ?icon text ~font ~caret =
   let corners = select_corners corners Default.text_radius in
   draw_bevel_inset t xf box corners;
   let shade_top, shade_down = inner_colors theme.text_field state in
@@ -557,7 +557,7 @@ let draw_text_field t xf box ~corners state ?icon text ~caret =
   let caret = if state <> `ACTIVE then (fst caret, -1) else caret in
   draw_icon_label_caret t xf box ?icon
     (text_color theme.text_field state)
-    ~fontsize:Default.label_font_size
+    ~font:{font with Wall.Font.size = Default.label_font_size}
     text theme.text_field.item ~caret
 
 let draw_check t xf ~x ~y color =
@@ -591,7 +591,7 @@ let draw_arrow t xf ~x ~y ~size color =
   C.close_path t;
   C.fill t (Paint.color color)
 
-let draw_option_button t xf box state label =
+let draw_option_button t xf box state label ~font =
   let ox = B2.minx box in
   let oy = B2.maxy box -. Default.option_height -. 3.0 in
   let box' = B2.v (P2.v ox oy)
@@ -607,9 +607,9 @@ let draw_option_button t xf box state label =
     draw_check t xf (transparent theme.option.item) ~x:ox ~y:oy;
   draw_icon_label_value t xf (offset_box box 12.0 0.0 (-12.0) (-1.0))
     (text_color theme.option state)
-    ~align:`LEFT ~fontsize:Default.label_font_size ~label
+    ~halign:`LEFT ~font:{font with Wall.Font.size = Default.label_font_size} ~label
 
-let draw_choice_button t xf box ~corners state ?icon label =
+let draw_choice_button t xf box ~corners ~font state ?icon label =
   let corners = select_corners corners Default.option_radius in
   draw_bevel_inset t xf box corners;
   let shade_top, shade_down = inner_colors theme.choice state ~flip:true in
@@ -617,7 +617,7 @@ let draw_choice_button t xf box ~corners state ?icon label =
   draw_outline_box t xf box corners (transparent theme.choice.outline);
   draw_icon_label_value t xf box ?icon
     (text_color theme.choice state)
-    ~align:`LEFT ~fontsize:Default.label_font_size ~label;
+    ~halign:`LEFT ~font:{font with Wall.Font.size = Default.label_font_size} ~label;
   let x = B2.maxx box -. 10.0 and y = B2.miny box +. 10.0 in
   draw_up_down_arrow t xf ~x ~y ~size:5.0
     (transparent theme.choice.item)

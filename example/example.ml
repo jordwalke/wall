@@ -381,8 +381,8 @@ let draw_window vg xf title x y w h =
 
   let font = Lazy.force font_sans_bold in
 
-  C.text vg (Paint.color (Gg.Color.gray ~a:0.6 0.9))
-    (Font.make ~blur:2.0 ~size:18.0 font)
+  C.text vg (Paint.color (Gg.Color.gray ~a:0.5 0.0))
+    (Font.make ~blur:0.9 ~size:18.0 font)
     ~valign:`MIDDLE ~halign:`CENTER
     ~x:(x+.w/.2.) ~y:(y+.16.+.1.0) title;
 
@@ -545,6 +545,7 @@ let draw_button vg xf preicon text x y w h col =
   C.round_rect vg (x+.0.5) (y+.0.5) (w-.1.0) (h-.1.0) (cornerRadius-.0.5);
   C.stroke vg (Paint.color (Color.gray ~a:0.375 0.0)) Outline.default;
   let font = Font.make ~size:20.0 (Lazy.force font_sans_bold) in
+  let font_blur = Font.make ~blur:2.0 ~size:20.0 (Lazy.force font_sans_bold) in
   let tw = Font.text_width font text in
   let iw = if preicon = 0 then 0.0 else
       let font = Font.make ~size:(h*.1.3) (Lazy.force font_icons) in
@@ -556,9 +557,9 @@ let draw_button vg xf preicon text x y w h col =
         icon;
       iw
   in
-  C.text vg (Paint.color (Gg.Color.gray ~a:0.66 0.0)) font
+  C.text vg (Paint.color (Gg.Color.gray ~a:0.66 0.0)) font_blur
     ~valign:`MIDDLE ~halign:`LEFT
-    ~x:(x+.w*.0.5-.tw*.0.5+.iw*.0.25) ~y:(y+.h*.0.5-.0.5) text;
+    ~x:(x+.w*.0.5-.tw*.0.5+.iw*.0.25) ~y:(y+.h*.0.5) text;
   C.text vg (Paint.color (Gg.Color.gray ~a:0.66 1.0)) font
     ~valign:`MIDDLE ~halign:`LEFT
     ~x:(x+.w*.0.5-.tw*.0.5+.iw*.0.25) ~y:(y+.h*.0.5) text
